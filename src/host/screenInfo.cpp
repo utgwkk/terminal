@@ -1412,20 +1412,51 @@ bool SCREEN_INFORMATION::IsMaximizedY() const
     }
 
     // Save cursor's relative height versus the viewport
-    SHORT const sCursorHeightInViewportBefore = _textBuffer->GetCursor().GetPosition().Y - _viewport.Top();
+    short cursorHeightInViewportBefore = _textBuffer->GetCursor().GetPosition().Y - _viewport.Top();
+
+    auto& gci = ServiceLocator::LocateGlobals().getConsoleInformation();
+    const bool isConpty = gci.IsInVtIoMode();
 
     HRESULT hr = TextBuffer::Reflow(*_textBuffer.get(), *newTextBuffer.get());
+
+    const bool widthChanged = coordNewScreenSize.X != _textBuffer->GetSize().Width();
 
     if (SUCCEEDED(hr))
     {
         Cursor& newCursor = newTextBuffer->GetCursor();
         // Adjust the viewport so the cursor doesn't wildly fly off up or down.
-        SHORT const sCursorHeightInViewportAfter = newCursor.GetPosition().Y - _viewport.Top();
+        const short cursorHeightInViewportAfter = newCursor.GetPosition().Y - _viewport.Top();
         COORD coordCursorHeightDiff = { 0 };
-        coordCursorHeightDiff.Y = sCursorHeightInViewportAfter - sCursorHeightInViewportBefore;
+        coordCursorHeightDiff.Y = cursorHeightInViewportAfter - cursorHeightInViewportBefore;
         LOG_IF_FAILED(SetViewportOrigin(false, coordCursorHeightDiff, true));
 
         _textBuffer.swap(newTextBuffer);
+    }
+
+    // GH#3490 - In conpty mode, We want to invalidate all of the viewport that
+    // might have been below any wrapped lines, up until the last character of
+    // the buffer. Lines that were wrapped may have been re-wrapped during this
+    // resize, so we want them repainted to the terminal. We don't want to just
+    // invalidate everything though - if there were blank lines at the bottom,
+    // those can just be ignored.
+    if (isConpty && widthChanged)
+    {
+        // Loop through all the rows of the old buffer and reprint them into the new buffer
+        const auto bottom = std::max(_textBuffer->GetCursor().GetPosition().Y,
+                                     std::min(_viewport.BottomInclusive(),
+                                              _textBuffer->GetLastNonSpaceCharacter().Y));
+        bool foundWrappedLine = false;
+        for (short y = _viewport.Top(); y <= bottom; y++)
+        {
+            // Fetch the row and its "right" which is the last printable character.
+            const ROW& row = _textBuffer->GetRowByOffset(y);
+            const CharRow& charRow = row.GetCharRow();
+            if (foundWrappedLine || charRow.WasWrapForced())
+            {
+                foundWrappedLine = true;
+                _renderTarget.TriggerRedraw(Viewport::FromDimensions({ 0, y }, _viewport.Width(), 1));
+            }
+        }
     }
 
     return NTSTATUS_FROM_HRESULT(hr);
@@ -2176,8 +2207,13 @@ void SCREEN_INFORMATION::SetDefaultAttributes(const TextAttribute& attributes,
         commandLine.UpdatePopups(attributes, popupAttributes, oldPrimaryAttributes, oldPopupAttributes);
     }
 
-    // force repaint of entire viewport
-    GetRenderTarget().TriggerRedrawAll();
+    // Force repaint of entire viewport, unless we're in conpty mode. In that
+    // case, we don't really need to force a redraw of the entire screen just
+    // because the text attributes changed.
+    if (!gci.IsInVtIoMode())
+    {
+        GetRenderTarget().TriggerRedrawAll();
+    }
 
     gci.ConsoleIme.RefreshAreaAttributes();
 

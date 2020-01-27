@@ -206,6 +206,21 @@ bool VtIo::IsUsingVt() const
     return _objectsCreated;
 }
 
+#ifdef UNIT_TESTING
+// Method Description:
+// - This is a test helper method. It can be used to trick VtIo into responding
+//   true to `IsUsingVt`, which will cause the console host to act in conpty
+//   mode.
+// Arguments:
+// - <none>
+// Return Value:
+// - <none>
+void VtIo::EnableConptyModeForTests()
+{
+    _objectsCreated = true;
+}
+#endif
+
 // Routine Description:
 //  Potentially starts this VtIo's input thread and render engine.
 //      If the VtIo hasn't yet been given pipes, then this function will

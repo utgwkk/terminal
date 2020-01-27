@@ -176,14 +176,40 @@ void Terminal::UpdateSettings(winrt::Microsoft::Terminal::Settings::ICoreSetting
         return S_FALSE;
     }
 
+    const auto dy = viewportSize.Y - oldDimensions.Y;
+
+    // We're going to attempt to "stick to the top" of where the old viewport was.
     const auto oldTop = _mutableViewport.Top();
 
     const short newBufferHeight = viewportSize.Y + _scrollbackLines;
     COORD bufferSize{ viewportSize.X, newBufferHeight };
     RETURN_IF_FAILED(_buffer->ResizeTraditional(bufferSize));
 
-    auto proposedTop = oldTop;
-    const auto newView = Viewport::FromDimensions({ 0, proposedTop }, viewportSize);
+    // However conpty resizes a little oddly - if the height decreased, and
+    // there were blank lines at the bottom, those lines will get trimmed.
+    // If there's not blank lines, then the top will get "shifted down",
+    // moving the top line into scrollback.
+    // See GH#3490 for more details.
+
+    // If the final position in the buffer is on the bottom row of the new
+    // viewport, then we're going to need to move the top down. Otherwise,
+    // move the bottom up.
+    const COORD cOldCursorPos = _buffer->GetCursor().GetPosition();
+    COORD cOldLastChar = cOldCursorPos;
+    try
+    {
+        cOldLastChar = _buffer->GetLastNonSpaceCharacter();
+    }
+    CATCH_LOG();
+
+    const auto maxRow = std::max(cOldLastChar.Y, cOldCursorPos.Y);
+
+    const bool beforeLastRow = maxRow < bufferSize.Y - 1;
+    const auto adjustment = beforeLastRow ? 0 : std::max(0, -dy);
+
+    auto proposedTop = oldTop + adjustment;
+
+    const auto newView = Viewport::FromDimensions({ 0, gsl::narrow_cast<short>(proposedTop) }, viewportSize);
     const auto proposedBottom = newView.BottomExclusive();
     // If the new bottom would be below the bottom of the buffer, then slide the
     // top up so that we'll still fit within the buffer.
@@ -192,7 +218,8 @@ void Terminal::UpdateSettings(winrt::Microsoft::Terminal::Settings::ICoreSetting
         proposedTop -= (proposedBottom - bufferSize.Y);
     }
 
-    _mutableViewport = Viewport::FromDimensions({ 0, proposedTop }, viewportSize);
+    _mutableViewport = Viewport::FromDimensions({ 0, gsl::narrow_cast<short>(proposedTop) }, viewportSize);
+
     _scrollOffset = 0;
     _NotifyScrollEvent();
 
