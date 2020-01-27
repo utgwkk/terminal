@@ -149,6 +149,7 @@ using namespace Microsoft::Console::Types;
 // - S_OK or suitable HRESULT error from writing pipe.
 [[nodiscard]] HRESULT VtEngine::PaintCursor(const IRenderEngine::CursorOptions& options) noexcept
 {
+    _trace.TracePaintCursor(options.coordCursor);
     // MSFT:15933349 - Send the terminal the updated cursor information, if it's changed.
     LOG_IF_FAILED(_MoveCursor(options.coordCursor));
 
@@ -486,7 +487,11 @@ using namespace Microsoft::Console::Types;
     //      we'll determine that we need to emit a \b to put the cursor in the
     //      right position. This is wrong, and will cause us to move the cursor
     //      back one character more than we wanted.
-    if (_lastText.X < _lastViewport.RightInclusive())
+    // GH#1245 - This needs to be < RightExclusive, otherwise a backspace
+    // through a line wrap at the prompt will incorrectly leave the cursor
+    // _after_ the space that we used to erase the last character.
+    // TODO: Write a test for this case in the output tests
+    if (_lastText.X < _lastViewport.RightExclusive())
     {
         _lastText.X += static_cast<short>(columnsActual);
     }

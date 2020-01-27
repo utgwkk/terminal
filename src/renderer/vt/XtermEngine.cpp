@@ -233,6 +233,8 @@ XtermEngine::XtermEngine(_In_ wil::unique_hfile hPipe,
 // - S_OK if we succeeded, else an appropriate HRESULT for failing to allocate or write.
 [[nodiscard]] HRESULT XtermEngine::_MoveCursor(COORD const coord) noexcept
 {
+    _trace.TraceMoveCursor(_lastText, coord);
+
     HRESULT hr = S_OK;
 
     if (coord.X != _lastText.X || coord.Y != _lastText.Y)
