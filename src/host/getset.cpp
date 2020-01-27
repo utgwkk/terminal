@@ -1349,7 +1349,6 @@ void DoSrvPrivateShowCursor(SCREEN_INFORMATION& screenInfo, const bool show) noe
 void DoSrvPrivateAllowCursorBlinking(SCREEN_INFORMATION& screenInfo, const bool fEnable)
 {
     screenInfo.GetActiveBuffer().GetTextBuffer().GetCursor().SetBlinkingAllowed(fEnable);
-    screenInfo.GetActiveBuffer().GetTextBuffer().GetCursor().SetIsOn(!fEnable);
 }
 
 // Routine Description:
