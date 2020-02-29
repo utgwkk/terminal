@@ -76,7 +76,8 @@
         "switchToTab7",
         "switchToTab8",
         "toggleFullscreen",
-        "find"
+        "find",
+        "unbound"
       ],
       "type": "string"
     },
